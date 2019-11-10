@@ -1,0 +1,2 @@
+User-agent: *
+Sitemap: https://zhangjiangqige.me/sitemap.xml

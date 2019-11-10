@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>programming on zhangjiangqige</title>
+    <link>https://zhangjiangqige.me/tags/programming/</link>
+    <description>Recent content in programming on zhangjiangqige</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en</language>
+    <lastBuildDate>Mon, 19 Mar 2018 21:43:33 +0800</lastBuildDate>
+    
+	<atom:link href="https://zhangjiangqige.me/tags/programming/index.xml" rel="self" type="application/rss+xml" />
+    
+    
+    <item>
+      <title>编程</title>
+      <link>https://zhangjiangqige.me/post/2018-03-19-programming/</link>
+      <pubDate>Mon, 19 Mar 2018 21:43:33 +0800</pubDate>
+      
+      <guid>https://zhangjiangqige.me/post/2018-03-19-programming/</guid>
+      <description>有句话叫“语言影响思维方式”，刚刚看着讲解堆的文章突然意识到编程语言也会影响自己的思维方式。但这个影响并不是来自于比如C、Python，而是</description>
+    </item>
+    
+  </channel>
+</rss>
