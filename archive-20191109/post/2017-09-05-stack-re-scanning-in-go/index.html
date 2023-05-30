@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+  <title>Stack Re-scanning in Go - zhangjiangqige</title>
+  <meta name="renderer" content="webkit" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
+
+<meta http-equiv="Cache-Control" content="no-transform" />
+<meta http-equiv="Cache-Control" content="no-siteapp" />
+
+<meta name="theme-color" content="#f8f5ec" />
+<meta name="msapplication-navbutton-color" content="#f8f5ec">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="#f8f5ec">
+
+
+<meta name="author" content="zhangjiangqige" /><meta name="description" content="Ok let me write my first English blog&amp;hellip; and with the new theme, and I switched the backend of this site to Hugo. I&amp;rsquo;m going to write my understanding about why stack re-scanning was needed before Go 1.8, how it&amp;rsquo;s removed, and show the implementation of the removal in the source code.
+What is GC Google please.
+How Go does GC Go uses (maybe) a variant of mark-sweep method to do GC, called tri-color." />
+
+
+
+
+
+
+<meta name="generator" content="Hugo 0.59.1 with theme even" />
+
+
+<link rel="canonical" href="https://zhangjiangqige.me/archive-20191109/post/2017-09-05-stack-re-scanning-in-go/" />
+<link rel="apple-touch-icon" sizes="180x180" href="/archive-20191109/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/archive-20191109/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/archive-20191109/favicon-16x16.png">
+<link rel="manifest" href="/archive-20191109/manifest.json">
+<link rel="mask-icon" href="/archive-20191109/safari-pinned-tab.svg" color="#5bbad5">
+
+
+<link href="/archive-20191109/dist/even.c2a46f00.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3.1.20/dist/jquery.fancybox.min.css" integrity="sha256-7TyXnr2YU040zfSP+rEcz29ggW4j56/ujTPwjMzyqFY=" crossorigin="anonymous">
+
+
+<meta property="og:title" content="Stack Re-scanning in Go" />
+<meta property="og:description" content="Ok let me write my first English blog&hellip; and with the new theme, and I switched the backend of this site to Hugo. I&rsquo;m going to write my understanding about why stack re-scanning was needed before Go 1.8, how it&rsquo;s removed, and show the implementation of the removal in the source code.
+What is GC Google please.
+How Go does GC Go uses (maybe) a variant of mark-sweep method to do GC, called tri-color." />
+<meta property="og:type" content="article" />
+<meta property="og:url" content="https://zhangjiangqige.me/archive-20191109/post/2017-09-05-stack-re-scanning-in-go/" />
+<meta property="article:published_time" content="2017-09-05T16:01:34+08:00" />
+<meta property="article:modified_time" content="2017-09-05T16:01:34+08:00" />
+<meta itemprop="name" content="Stack Re-scanning in Go">
+<meta itemprop="description" content="Ok let me write my first English blog&hellip; and with the new theme, and I switched the backend of this site to Hugo. I&rsquo;m going to write my understanding about why stack re-scanning was needed before Go 1.8, how it&rsquo;s removed, and show the implementation of the removal in the source code.
+What is GC Google please.
+How Go does GC Go uses (maybe) a variant of mark-sweep method to do GC, called tri-color.">
+
+
+<meta itemprop="datePublished" content="2017-09-05T16:01:34&#43;08:00" />
+<meta itemprop="dateModified" content="2017-09-05T16:01:34&#43;08:00" />
+<meta itemprop="wordCount" content="1791">
+
+
+
+<meta itemprop="keywords" content="golang,gc,source-code," />
+<meta name="twitter:card" content="summary"/>
+<meta name="twitter:title" content="Stack Re-scanning in Go"/>
+<meta name="twitter:description" content="Ok let me write my first English blog&hellip; and with the new theme, and I switched the backend of this site to Hugo. I&rsquo;m going to write my understanding about why stack re-scanning was needed before Go 1.8, how it&rsquo;s removed, and show the implementation of the removal in the source code.
+What is GC Google please.
+How Go does GC Go uses (maybe) a variant of mark-sweep method to do GC, called tri-color."/>
+
+<!--[if lte IE 9]>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/classlist/1.1.20170427/classList.min.js"></script>
+<![endif]-->
+
+<!--[if lt IE 9]>
+  <script src="https://cdn.jsdelivr.net/npm/html5shiv@3.7.3/dist/html5shiv.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/respond.js@1.4.2/dest/respond.min.js"></script>
+<![endif]-->
+
+</head>
+<body>
+  <div id="mobile-navbar" class="mobile-navbar">
+  <div class="mobile-header-logo">
+    <a href="/archive-20191109/" class="logo">zhangjiangqige</a>
+  </div>
+  <div class="mobile-navbar-icon">
+    <span></span>
+    <span></span>
+    <span></span>
+  </div>
+</div>
+<nav id="mobile-menu" class="mobile-menu slideout-menu">
+  <ul class="mobile-menu-list">
+    <a href="/archive-20191109/">
+        <li class="mobile-menu-item">Home</li>
+      </a><a href="/archive-20191109/post/">
+        <li class="mobile-menu-item">Archives</li>
+      </a><a href="/archive-20191109/tags/">
+        <li class="mobile-menu-item">Tags</li>
+      </a><a href="/archive-20191109/categories/">
+        <li class="mobile-menu-item">Categories</li>
+      </a><a href="/archive-20191109/about/">
+        <li class="mobile-menu-item">About</li>
+      </a>
+  </ul>
+</nav>
+  <div class="container" id="mobile-panel">
+    <header id="header" class="header">
+        <div class="logo-wrapper">
+  <a href="/archive-20191109/" class="logo">zhangjiangqige</a>
+</div>
+
+<nav class="site-navbar">
+  <ul id="menu" class="menu">
+    <li class="menu-item">
+        <a class="menu-item-link" href="/archive-20191109/">Home</a>
+      </li><li class="menu-item">
+        <a class="menu-item-link" href="/archive-20191109/post/">Archives</a>
+      </li><li class="menu-item">
+        <a class="menu-item-link" href="/archive-20191109/tags/">Tags</a>
+      </li><li class="menu-item">
+        <a class="menu-item-link" href="/archive-20191109/categories/">Categories</a>
+      </li><li class="menu-item">
+        <a class="menu-item-link" href="/archive-20191109/about/">About</a>
+      </li>
+  </ul>
+</nav>
+    </header>
+
+    <main id="main" class="main">
+      <div class="content-wrapper">
+        <div id="content" class="content">
+          <article class="post">
+
+    <header class="post-header">
+      <h1 class="post-title">Stack Re-scanning in Go</h1>
+
+      <div class="post-meta">
+        <span class="post-time"> 2017-09-05 </span>
+        <div class="post-category">
+            <a href="/archive-20191109/categories/work/"> work </a>
+            </div>
+          <span class="more-meta"> 1791 words </span>
+          <span class="more-meta"> 9 mins read </span>
+
+      </div>
+    </header>
+
+    <div class="post-toc" id="post-toc">
+  <h2 class="post-toc-title">Contents</h2>
+  <div class="post-toc-content always-active">
+    <nav id="TableOfContents">
+<ul>
+<li><a href="#what-is-gc">What is GC</a></li>
+<li><a href="#how-go-does-gc">How Go does GC</a></li>
+<li><a href="#why-stack-re-scanning-was-needed">Why stack re-scanning was needed</a></li>
+<li><a href="#how-stack-re-scanning-is-removed">How stack re-scanning is removed</a>
+<ul>
+<li><a href="#the-original-barrier">The original barrier</a></li>
+<li><a href="#the-proposed-barrier">The proposed barrier</a></li>
+</ul></li>
+<li><a href="#implementation-of-the-removal">Implementation of the removal</a></li>
+<li><a href="#conclusion">Conclusion</a></li>
+<li><a href="#references">References</a></li>
+</ul>
+</nav>
+  </div>
+</div>
+    <div class="post-content">
+
+
+<p>Ok let me write my first English blog&hellip; and with the new theme, and I switched the backend of this site to Hugo. I&rsquo;m going to write my understanding about why stack re-scanning was needed before Go 1.8, how it&rsquo;s removed, and show the implementation of the removal in the source code.</p>
+
+<h1 id="what-is-gc">What is GC</h1>
+
+<p><a href="https://www.google.com/search?q=garbage+collection">Google</a> please.</p>
+
+<h1 id="how-go-does-gc">How Go does GC</h1>
+
+<p>Go uses (maybe) a variant of mark-sweep method to do GC, called tri-color. It consists of multiple steps, as shown in the <a href="https://talks.golang.org/2015/go-gc.pdf">slides</a> from Google.</p>
+
+<p><img src="/images/2017-09-05-stack-re-scanning-in-go-google-slide.png" alt="should be a pic" /></p>
+
+<p>In the source code (at least 1.7 ~ 1.9), &ldquo;Stack scan&rdquo; is actually in the &ldquo;Mark&rdquo; function and &ldquo;Sweep&rdquo; in &ldquo;Mark termination&rdquo;, so it can be considered as two phases. They can be combined into one, but separting into two and with the help of <em>write barriers</em>, the first phase can mark (maybe) most of the garbages and only need to halt the whole program at the beginning to collect the root objects (objects in stacks and global variables), shortenning the overall length of stop-the-world (STW).</p>
+
+<p>This <a href="https://making.pusher.com/golangs-real-time-gc-in-theory-and-practice/">blog</a> has very intuitive figures, you must take a look.</p>
+
+<h1 id="why-stack-re-scanning-was-needed">Why stack re-scanning was needed</h1>
+
+<p>This <a href="https://stackoverflow.com/questions/2364274/tri-color-incremental-updating-gc-does-it-need-to-scan-each-stack-twice">Stackoverflow question</a> gives a great exmaple; let me rephrase it here.</p>
+
+<p>Suppose we have an object <code>A</code> on a stack, and <code>A.ref</code> points to another object <code>B</code>,</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><span class="lnt">1
+</span></pre></td>
+<td class="lntd">
+<pre class="chroma">stack -&gt; A.ref -&gt; B</pre></td></tr></table>
+</div>
+</div>
+<p>When the garbage collector finishes scanning the stack, <code>A</code> becomes gray,</p>
+
+<p><img src="/images/2017-09-05-stack-re-scanning-in-go-tricolor-1.png" alt="should be a pic" /></p>
+
+<p>Because Go has <em>write barriers</em>, GC can run concurrently with the user program. Assume that before the garbage collector can do a thing, the program executes again,</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code class="language-go" data-lang="go"><span class="lnt">1
+</span><span class="lnt">2
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-go" data-lang="go"><span class="nx">localRef</span> <span class="p">=</span> <span class="nx">B</span>
+<span class="nx">A</span><span class="p">.</span><span class="nx">ref</span> <span class="p">=</span> <span class="kc">nil</span></code></pre></td></tr></table>
+</div>
+</div>
+<p>Then the situation becomes</p>
+
+<p><img src="/images/2017-09-05-stack-re-scanning-in-go-tricolor-2.png" alt="should be a pic" /></p>
+
+<p>Then the collector goes again, and the stack is pointing to <code>B</code>, which is white, and this is the problem, since stacks are considered black after they&rsquo;re scanned at the beginning of GC, meaning all objects referenced by the stacks are not white. To color <code>B</code> gray, we have to scan the stacks again, resulting in the &ldquo;stack re-scanning&rdquo; in the second phase.</p>
+
+<h1 id="how-stack-re-scanning-is-removed">How stack re-scanning is removed</h1>
+
+<p>The goal is to keep stacks only referencing objects that are not white. Therefore, similar to the write barrier for normal objects which colors the new object being referenced gray when writing pointers, <a href="https://github.com/golang/proposal/blob/master/design/17503-eliminate-rescan.md">this proposal</a> proposes an approach.</p>
+
+<p>Author of the proposal mentioned that stack write barriers are &ldquo;prohibitively expensive&rdquo;, so Go chose to scan the stacks again, and the proposed method is &ldquo;equivalent to the double write barrier&rdquo;. In the future I may investigate these two things a bit. It&rsquo;s straightforward to shade objects when writing to pointers on stacks after all; there must be some reasons for the Go developers to implement in this way.</p>
+
+<h2 id="the-original-barrier">The original barrier</h2>
+
+<p>Pseudo code of the original write barrier is</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><span class="lnt">1
+</span><span class="lnt">2
+</span><span class="lnt">3
+</span></pre></td>
+<td class="lntd">
+<pre class="chroma">writePointer(slot, ptr):
+    shade(ptr)
+    *slot = ptr</pre></td></tr></table>
+</div>
+</div>
+<p><code>ptr</code> is the address of an object whose address is being assigned to <code>*slot</code>, and <code>slot</code> (according to my speculation) is the address of a pointer of an object or on a stack.</p>
+
+<p>The real code is quite alike, though the assignment of <code>*slot</code> is in another function,</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code class="language-go" data-lang="go"><span class="lnt">1
+</span><span class="lnt">2
+</span><span class="lnt">3
+</span><span class="lnt">4
+</span><span class="lnt">5
+</span><span class="lnt">6
+</span><span class="lnt">7
+</span><span class="lnt">8
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-go" data-lang="go"><span class="c1">// mbarrier.go
+</span><span class="c1"></span><span class="kd">func</span> <span class="nf">gcmarkwb_m</span><span class="p">(</span><span class="nx">slot</span> <span class="o">*</span><span class="kt">uintptr</span><span class="p">,</span> <span class="nx">ptr</span> <span class="kt">uintptr</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">if</span> <span class="nx">writeBarrier</span><span class="p">.</span><span class="nx">needed</span> <span class="p">{</span>
+        <span class="k">if</span> <span class="nx">ptr</span> <span class="o">!=</span> <span class="mi">0</span> <span class="o">&amp;&amp;</span> <span class="nf">inheap</span><span class="p">(</span><span class="nx">ptr</span><span class="p">)</span> <span class="p">{</span>
+            <span class="nf">shade</span><span class="p">(</span><span class="nx">ptr</span><span class="p">)</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+<span class="p">}</span></code></pre></td></tr></table>
+</div>
+</div>
+<h2 id="the-proposed-barrier">The proposed barrier</h2>
+
+<p>Let&rsquo;s start with a simpler version</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><span class="lnt">1
+</span><span class="lnt">2
+</span><span class="lnt">3
+</span><span class="lnt">4
+</span></pre></td>
+<td class="lntd">
+<pre class="chroma">writePointer(slot, ptr):
+    shade(*slot)
+    shade(ptr)
+    *slot = ptr</pre></td></tr></table>
+</div>
+</div>
+<p>The modified barrier shades the <em>old</em> object referenced by <code>slot</code> together with the <em>new</em> object being referenced by <code>slot</code>. Recall our previous example,</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><span class="lnt">1
+</span></pre></td>
+<td class="lntd">
+<pre class="chroma">stack -&gt; A.ref -&gt; B</pre></td></tr></table>
+</div>
+</div>
+<p>and</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code class="language-go" data-lang="go"><span class="lnt">1
+</span><span class="lnt">2
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-go" data-lang="go"><span class="nx">localRef</span> <span class="p">=</span> <span class="nx">B</span>
+<span class="nx">A</span><span class="p">.</span><span class="nx">ref</span> <span class="p">=</span> <span class="kc">nil</span></code></pre></td></tr></table>
+</div>
+</div>
+<p>With the new barrier, when assigning <code>nil</code> to <code>A.ref</code>, the <em>old</em> value of <code>A.ref</code>, which is <code>B</code>, will be shaded, and the scanned stack won&rsquo;t reference a white object anymore.</p>
+
+<p>This method is the actual implementation introduced in Go 1.8,</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code class="language-go" data-lang="go"><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-go" data-lang="go"><span class="c1">// mbarrier.go
+</span><span class="c1"></span><span class="kd">func</span> <span class="nf">gcmarkwb_m</span><span class="p">(</span><span class="nx">slot</span> <span class="o">*</span><span class="kt">uintptr</span><span class="p">,</span> <span class="nx">ptr</span> <span class="kt">uintptr</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">if</span> <span class="nx">writeBarrier</span><span class="p">.</span><span class="nx">needed</span> <span class="p">{</span>
+        <span class="k">if</span> <span class="nx">slot1</span> <span class="o">:=</span> <span class="nb">uintptr</span><span class="p">(</span><span class="nx">unsafe</span><span class="p">.</span><span class="nf">Pointer</span><span class="p">(</span><span class="nx">slot</span><span class="p">));</span> <span class="nx">slot1</span> <span class="o">&gt;=</span> <span class="nx">minPhysPageSize</span> <span class="p">{</span>
+            <span class="k">if</span> <span class="nx">optr</span> <span class="o">:=</span> <span class="o">*</span><span class="nx">slot</span><span class="p">;</span> <span class="nx">optr</span> <span class="o">!=</span> <span class="mi">0</span> <span class="p">{</span>
+                <span class="nf">shade</span><span class="p">(</span><span class="nx">optr</span><span class="p">)</span>
+            <span class="p">}</span>
+        <span class="p">}</span>
+        <span class="k">if</span> <span class="nx">ptr</span> <span class="o">!=</span> <span class="mi">0</span> <span class="o">&amp;&amp;</span> <span class="nf">inheap</span><span class="p">(</span><span class="nx">ptr</span><span class="p">)</span> <span class="p">{</span>
+            <span class="nf">shade</span><span class="p">(</span><span class="nx">ptr</span><span class="p">)</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+<span class="p">}</span></code></pre></td></tr></table>
+</div>
+</div>
+<p>However, the author of the proposal in fact proposed an optimized version,</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><span class="lnt">1
+</span><span class="lnt">2
+</span><span class="lnt">3
+</span><span class="lnt">4
+</span><span class="lnt">5
+</span></pre></td>
+<td class="lntd">
+<pre class="chroma">writePointer(slot, ptr):
+    shade(*slot)
+    if current stack is grey:
+        shade(ptr)
+    *slot = ptr</pre></td></tr></table>
+</div>
+</div>
+<p>This version avoids shading objects after a stack becomes black. Although the author claims that the previous unoptimized method is twice as expensive, it&rsquo;s actually probably not true, because the object will be shaded anyway; it&rsquo;s just a matter of time, and the shading function can check whether an object is shaded, thus avoiding shading an object twice. It&rsquo;s the same as checking the color of a stack.</p>
+
+<h1 id="implementation-of-the-removal">Implementation of the removal</h1>
+
+<p>The implementation is very indirect because Go still needs to provide a way to fall back to the old method in case of errors. All code below are from Go 1.8.3.</p>
+
+<blockquote>
+<p>we will leave stack re-scanning support in the runtime for debugging purposes</p>
+</blockquote>
+
+<p>GC starts when allocating objects, if not started by <code>sysmon</code>,</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code class="language-go" data-lang="go"><span class="lnt">1
+</span><span class="lnt">2
+</span><span class="lnt">3
+</span><span class="lnt">4
+</span><span class="lnt">5
+</span><span class="lnt">6
+</span><span class="lnt">7
+</span><span class="lnt">8
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-go" data-lang="go"><span class="c1">// malloc.go
+</span><span class="c1"></span><span class="kd">func</span> <span class="nf">mallocgc</span><span class="p">(</span><span class="nx">size</span> <span class="kt">uintptr</span><span class="p">,</span> <span class="nx">typ</span> <span class="o">*</span><span class="nx">_type</span><span class="p">,</span> <span class="nx">needzero</span> <span class="kt">bool</span><span class="p">)</span> <span class="nx">unsafe</span><span class="p">.</span><span class="nx">Pointer</span> <span class="p">{</span>
+    <span class="o">...</span>
+    <span class="k">if</span> <span class="nx">shouldhelpgc</span> <span class="o">&amp;&amp;</span> <span class="nf">gcShouldStart</span><span class="p">(</span><span class="kc">false</span><span class="p">)</span> <span class="p">{</span>
+        <span class="nf">gcStart</span><span class="p">(</span><span class="nx">gcBackgroundMode</span><span class="p">,</span> <span class="kc">false</span><span class="p">)</span>
+    <span class="p">}</span>
+    <span class="o">...</span>
+<span class="p">}</span></code></pre></td></tr></table>
+</div>
+</div>
+<p>Then, in <code>gcStart</code>, markers will be started,</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code class="language-go" data-lang="go"><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-go" data-lang="go"><span class="c1">// mgc.go
+</span><span class="c1"></span><span class="kd">func</span> <span class="nf">gcStart</span><span class="p">(</span><span class="nx">mode</span> <span class="nx">gcMode</span><span class="p">,</span> <span class="nx">forceTrigger</span> <span class="kt">bool</span><span class="p">)</span> <span class="p">{</span>
+    <span class="o">...</span>
+    <span class="k">if</span> <span class="nx">mode</span> <span class="o">==</span> <span class="nx">gcBackgroundMode</span> <span class="p">{</span>
+        <span class="nf">gcBgMarkStartWorkers</span><span class="p">()</span>
+    <span class="p">}</span>
+    <span class="o">...</span>
+    <span class="k">if</span> <span class="nx">mode</span> <span class="o">==</span> <span class="nx">gcBackgroundMode</span> <span class="p">{</span>
+        <span class="o">...</span>
+        <span class="nf">gcMarkRootPrepare</span><span class="p">()</span>
+        <span class="o">...</span>
+    <span class="p">}</span>
+    <span class="o">...</span>
+<span class="p">}</span></code></pre></td></tr></table>
+</div>
+</div>
+<p>In <code>gcMarkRootPreprare</code>, the numbers of different types of roots will be calculated,</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code class="language-go" data-lang="go"><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-go" data-lang="go"><span class="c1">// mgcmark.go
+</span><span class="c1"></span><span class="kd">func</span> <span class="nf">gcMarkRootPrepare</span><span class="p">()</span> <span class="p">{</span>
+    <span class="o">...</span>
+    <span class="k">if</span> <span class="p">!</span><span class="nx">work</span><span class="p">.</span><span class="nx">markrootDone</span> <span class="p">{</span>
+        <span class="o">...</span>
+        <span class="nx">work</span><span class="p">.</span><span class="nx">nRescanRoots</span> <span class="p">=</span> <span class="mi">0</span>
+    <span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+        <span class="o">...</span>
+        <span class="nx">work</span><span class="p">.</span><span class="nx">nRescanRoots</span> <span class="p">=</span> <span class="nb">len</span><span class="p">(</span><span class="nx">work</span><span class="p">.</span><span class="nx">rescan</span><span class="p">.</span><span class="nx">list</span><span class="p">)</span>
+    <span class="p">}</span>
+    <span class="nx">work</span><span class="p">.</span><span class="nx">markrootNext</span> <span class="p">=</span> <span class="mi">0</span>
+    <span class="nx">work</span><span class="p">.</span><span class="nx">markrootJobs</span> <span class="p">=</span> <span class="nb">uint32</span><span class="p">(</span><span class="nx">fixedRootCount</span> <span class="o">+</span> <span class="nx">work</span><span class="p">.</span><span class="nx">nFlushCacheRoots</span> <span class="o">+</span> <span class="nx">work</span><span class="p">.</span><span class="nx">nDataRoots</span> <span class="o">+</span> <span class="nx">work</span><span class="p">.</span><span class="nx">nBSSRoots</span> <span class="o">+</span> <span class="nx">work</span><span class="p">.</span><span class="nx">nSpanRoots</span> <span class="o">+</span> <span class="nx">work</span><span class="p">.</span><span class="nx">nStackRoots</span> <span class="o">+</span> <span class="nx">work</span><span class="p">.</span><span class="nx">nRescanRoots</span><span class="p">)</span>
+<span class="p">}</span></code></pre></td></tr></table>
+</div>
+</div>
+<p><code>work</code> is a global variable in <code>mgc.go</code>. The important field is <code>work.rescan</code>; it stores G&rsquo;s (or just goroutines for simple if you&rsquo;re not familiar with Go&rsquo;s scheduler) whose stacks are &ldquo;contaminated&rdquo;. <code>work.markrootDone</code> will be <code>true</code> once the roots are scanned once, otherwise it&rsquo;s <code>len(work.rescan.list)</code>.</p>
+
+<p>Contaminated G&rsquo;s are put into <code>work.rescan.list</code> like this,</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code class="language-go" data-lang="go"><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-go" data-lang="go"><span class="c1">// proc.go
+</span><span class="c1"></span><span class="kd">func</span> <span class="nf">newproc1</span><span class="p">(</span><span class="nx">fn</span> <span class="o">*</span><span class="nx">funcval</span><span class="p">,</span> <span class="nx">argp</span> <span class="o">*</span><span class="kt">uint8</span><span class="p">,</span> <span class="nx">narg</span> <span class="kt">int32</span><span class="p">,</span> <span class="nx">nret</span> <span class="kt">int32</span><span class="p">,</span> <span class="nx">callerpc</span> <span class="kt">uintptr</span><span class="p">)</span> <span class="o">*</span><span class="nx">g</span> <span class="p">{</span>
+    <span class="o">...</span>
+    <span class="c1">// The stack is dirty from the argument frame, so queue it for
+</span><span class="c1"></span>    <span class="c1">// scanning. Do this before setting it to runnable so we still
+</span><span class="c1"></span>    <span class="c1">// own the G. If we&#39;re recycling a G, it may already be on the
+</span><span class="c1"></span>    <span class="c1">// rescan list.
+</span><span class="c1"></span>    <span class="k">if</span> <span class="nx">newg</span><span class="p">.</span><span class="nx">gcRescan</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span> <span class="p">{</span>
+        <span class="nf">queueRescan</span><span class="p">(</span><span class="nx">newg</span><span class="p">)</span>
+    <span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+        <span class="c1">// The recycled G is already on the rescan list. Just
+</span><span class="c1"></span>        <span class="c1">// mark the stack dirty.
+</span><span class="c1"></span>        <span class="nx">newg</span><span class="p">.</span><span class="nx">gcscanvalid</span> <span class="p">=</span> <span class="kc">false</span>
+    <span class="p">}</span>
+    <span class="o">...</span>
+<span class="p">}</span></code></pre></td></tr></table>
+</div>
+</div>
+<p><code>queueRescan</code> does the work,</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code class="language-go" data-lang="go"><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-go" data-lang="go"><span class="c1">// mgcmark.go
+</span><span class="c1"></span><span class="kd">func</span> <span class="nf">queueRescan</span><span class="p">(</span><span class="nx">gp</span> <span class="o">*</span><span class="nx">g</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">if</span> <span class="nx">debug</span><span class="p">.</span><span class="nx">gcrescanstacks</span> <span class="o">==</span> <span class="mi">0</span> <span class="p">{</span>
+        <span class="nx">gp</span><span class="p">.</span><span class="nx">gcscanvalid</span> <span class="p">=</span> <span class="kc">false</span>
+        <span class="k">return</span>
+    <span class="p">}</span>
+    <span class="o">...</span>
+    <span class="nx">work</span><span class="p">.</span><span class="nx">rescan</span><span class="p">.</span><span class="nx">list</span> <span class="p">=</span> <span class="nx">work</span><span class="p">.</span><span class="nx">rescan</span><span class="p">.</span><span class="nx">list</span><span class="p">[:</span><span class="nx">n</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span>
+    <span class="nx">work</span><span class="p">.</span><span class="nx">rescan</span><span class="p">.</span><span class="nx">list</span><span class="p">[</span><span class="nx">n</span><span class="p">].</span><span class="nf">set</span><span class="p">(</span><span class="nx">gp</span><span class="p">)</span>
+    <span class="o">...</span>
+<span class="p">}</span></code></pre></td></tr></table>
+</div>
+</div>
+<p>However, there is that <code>if</code> which checks <code>debug.gcrescanstacks</code>; this debug flag is 0 by default, so this function will return right away without putting the G into <code>work.rescan</code>. Therefore, when consuming this list later, no (dirty) G&rsquo;s will be retrieved.</p>
+
+<p>Now let&rsquo;s see how <code>work.rescan</code> can actually affect the GC process. The mark woker is implementated as</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code class="language-go" data-lang="go"><span class="lnt">1
+</span><span class="lnt">2
+</span><span class="lnt">3
+</span><span class="lnt">4
+</span><span class="lnt">5
+</span><span class="lnt">6
+</span><span class="lnt">7
+</span><span class="lnt">8
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-go" data-lang="go"><span class="c1">// mgc.go
+</span><span class="c1"></span><span class="kd">func</span> <span class="nf">gcBgMarkWorker</span><span class="p">(</span><span class="nx">_p_</span> <span class="o">*</span><span class="nx">p</span><span class="p">)</span> <span class="p">{</span>
+    <span class="o">...</span>
+    <span class="nf">gcDrain</span><span class="p">(</span><span class="o">&amp;</span><span class="nx">_p_</span><span class="p">.</span><span class="nx">gcw</span><span class="p">,</span> <span class="nx">gcDrainNoBlock</span><span class="p">|</span><span class="nx">gcDrainFlushBgCredit</span><span class="p">)</span>
+    <span class="o">...</span>
+    <span class="nf">gcMarkDone</span><span class="p">()</span>
+    <span class="o">...</span>
+<span class="p">}</span></code></pre></td></tr></table>
+</div>
+</div>
+<p>There&rsquo;re two function calls here, and they correspond to the first non-STW marking phase and the second STW mark termination phase.</p>
+
+<p><code>gcDrain</code> does the normal tri-color thing, and since we are more interested in the second phase which involves stack re-scanning, let&rsquo;s just dig into <code>gcMarkDone</code>,</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code class="language-go" data-lang="go"><span class="lnt">1
+</span><span class="lnt">2
+</span><span class="lnt">3
+</span><span class="lnt">4
+</span><span class="lnt">5
+</span><span class="lnt">6
+</span><span class="lnt">7
+</span><span class="lnt">8
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-go" data-lang="go"><span class="c1">// mgc.go
+</span><span class="c1"></span><span class="kd">func</span> <span class="nf">gcMarkDone</span><span class="p">()</span> <span class="p">{</span>
+    <span class="o">...</span>
+    <span class="nf">systemstack</span><span class="p">(</span><span class="nx">stopTheWorldWithSema</span><span class="p">)</span>
+    <span class="nx">work</span><span class="p">.</span><span class="nx">markrootDone</span> <span class="p">=</span> <span class="kc">true</span>
+    <span class="nf">gcMarkTermination</span><span class="p">()</span>
+    <span class="o">...</span>
+<span class="p">}</span></code></pre></td></tr></table>
+</div>
+</div>
+<p>Now the world is stopped; <code>work.markrootDone</code> can be seen as a indicator of whether this is the first time to mark the roots or the second time, and it is <code>true</code> now because <code>gcDrain</code> before <code>gcMarkDone</code> has already marked the roots.</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code class="language-go" data-lang="go"><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-go" data-lang="go"><span class="c1">// mgc.go
+</span><span class="c1"></span><span class="kd">func</span> <span class="nf">gcMarkTermination</span><span class="p">()</span> <span class="p">{</span>
+    <span class="o">...</span>
+    <span class="nf">gcMark</span><span class="p">(</span><span class="nx">startTime</span><span class="p">)</span>
+    <span class="o">...</span>
+    <span class="nf">gcSweep</span><span class="p">(</span><span class="nx">work</span><span class="p">.</span><span class="nx">mode</span><span class="p">)</span>
+    <span class="o">...</span>
+    <span class="nf">systemstack</span><span class="p">(</span><span class="nx">startTheWorldWithSema</span><span class="p">)</span>
+    <span class="o">...</span>
+<span class="p">}</span></code></pre></td></tr></table>
+</div>
+</div>
+<p><code>gcMarkTermination</code> calls <code>gcMark</code>, then sweeps the heap, and starts the world. Let&rsquo;s see <code>gcMark</code>,</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code class="language-go" data-lang="go"><span class="lnt">1
+</span><span class="lnt">2
+</span><span class="lnt">3
+</span><span class="lnt">4
+</span><span class="lnt">5
+</span><span class="lnt">6
+</span><span class="lnt">7
+</span><span class="lnt">8
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-go" data-lang="go"><span class="c1">// mgc.go
+</span><span class="c1"></span><span class="kd">func</span> <span class="nf">gcMark</span><span class="p">(</span><span class="nx">start_time</span> <span class="kt">int64</span><span class="p">)</span> <span class="p">{</span>
+    <span class="o">...</span>
+    <span class="nf">gcMarkRootPrepare</span><span class="p">()</span>
+    <span class="o">...</span>
+    <span class="nf">gcDrain</span><span class="p">(</span><span class="nx">gcw</span><span class="p">,</span> <span class="nx">gcDrainNoBlock</span><span class="p">)</span>
+    <span class="o">...</span>
+<span class="p">}</span></code></pre></td></tr></table>
+</div>
+</div>
+<p>It calls <code>gcMarkRootPrepare</code> and <code>gcDrain</code> the second time. Recall the <code>if</code> in <code>gcMarkRootPrepare</code>, we now go to the <code>else</code> branch because <code>markrootDone</code> is <code>true</code>, and <code>work.nRescanRoots</code> is assigned <code>len(work.rescan.list)</code>, which is zero again!</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code class="language-go" data-lang="go"><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-go" data-lang="go"><span class="c1">// mgcmark.go
+</span><span class="c1"></span><span class="kd">func</span> <span class="nf">gcDrain</span><span class="p">(</span><span class="nx">gcw</span> <span class="o">*</span><span class="nx">gcWork</span><span class="p">,</span> <span class="nx">flags</span> <span class="nx">gcDrainFlags</span><span class="p">)</span> <span class="p">{</span>
+    <span class="o">...</span>
+    <span class="k">if</span> <span class="nx">work</span><span class="p">.</span><span class="nx">markrootNext</span> <span class="p">&lt;</span> <span class="nx">work</span><span class="p">.</span><span class="nx">markrootJobs</span> <span class="p">{</span>
+        <span class="k">for</span> <span class="p">!(</span><span class="nx">preemptible</span> <span class="o">&amp;&amp;</span> <span class="nx">gp</span><span class="p">.</span><span class="nx">preempt</span><span class="p">)</span> <span class="p">{</span>
+            <span class="nx">job</span> <span class="o">:=</span> <span class="nx">atomic</span><span class="p">.</span><span class="nf">Xadd</span><span class="p">(</span><span class="o">&amp;</span><span class="nx">work</span><span class="p">.</span><span class="nx">markrootNext</span><span class="p">,</span> <span class="o">+</span><span class="mi">1</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span>
+            <span class="k">if</span> <span class="nx">job</span> <span class="o">&gt;=</span> <span class="nx">work</span><span class="p">.</span><span class="nx">markrootJobs</span> <span class="p">{</span>
+                <span class="k">break</span>
+            <span class="p">}</span>
+            <span class="nf">markroot</span><span class="p">(</span><span class="nx">gcw</span><span class="p">,</span> <span class="nx">job</span><span class="p">)</span>
+            <span class="o">...</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+    <span class="o">...</span>
+    <span class="nf">scanobject</span><span class="p">(</span><span class="nx">b</span><span class="p">,</span> <span class="nx">gcw</span><span class="p">)</span>
+    <span class="o">...</span>
+<span class="p">}</span></code></pre></td></tr></table>
+</div>
+</div>
+<p>The <code>for</code> is iterating over the jobs prepared previously; remember <code>work.markrootNext = 0</code> in <code>gcMarkRootPrepare</code>?</p>
+
+<p><code>markroot</code> is the function to mark root objects gray,</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code class="language-go" data-lang="go"><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span><span class="lnt">18
+</span><span class="lnt">19
+</span><span class="lnt">20
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-go" data-lang="go"><span class="c1">// mgcmark.go
+</span><span class="c1"></span><span class="kd">func</span> <span class="nf">markroot</span><span class="p">(</span><span class="nx">gcw</span> <span class="o">*</span><span class="nx">gcWork</span><span class="p">,</span> <span class="nx">i</span> <span class="kt">uint32</span><span class="p">)</span> <span class="p">{</span>
+    <span class="o">...</span>
+    <span class="nx">baseRescan</span> <span class="o">:=</span> <span class="nx">baseStacks</span> <span class="o">+</span> <span class="nb">uint32</span><span class="p">(</span><span class="nx">work</span><span class="p">.</span><span class="nx">nStackRoots</span><span class="p">)</span>
+    <span class="nx">end</span> <span class="o">:=</span> <span class="nx">baseRescan</span> <span class="o">+</span> <span class="nb">uint32</span><span class="p">(</span><span class="nx">work</span><span class="p">.</span><span class="nx">nRescanRoots</span><span class="p">)</span>
+    <span class="o">...</span>
+    <span class="k">switch</span> <span class="p">{</span>
+        <span class="o">...</span>
+    <span class="k">default</span><span class="p">:</span>
+        <span class="c1">// the rest is scanning goroutine stacks
+</span><span class="c1"></span>        <span class="kd">var</span> <span class="nx">gp</span> <span class="o">*</span><span class="nx">g</span>
+        <span class="k">if</span> <span class="nx">baseStacks</span> <span class="o">&lt;=</span> <span class="nx">i</span> <span class="o">&amp;&amp;</span> <span class="nx">i</span> <span class="p">&lt;</span> <span class="nx">baseRescan</span> <span class="p">{</span>
+            <span class="nx">gp</span> <span class="p">=</span> <span class="nx">allgs</span><span class="p">[</span><span class="nx">i</span><span class="o">-</span><span class="nx">baseStacks</span><span class="p">]</span>
+        <span class="p">}</span> <span class="k">else</span> <span class="k">if</span> <span class="nx">baseRescan</span> <span class="o">&lt;=</span> <span class="nx">i</span> <span class="o">&amp;&amp;</span> <span class="nx">i</span> <span class="p">&lt;</span> <span class="nx">end</span> <span class="p">{</span>
+            <span class="nx">gp</span> <span class="p">=</span> <span class="nx">work</span><span class="p">.</span><span class="nx">rescan</span><span class="p">.</span><span class="nx">list</span><span class="p">[</span><span class="nx">i</span><span class="o">-</span><span class="nx">baseRescan</span><span class="p">].</span><span class="nf">ptr</span><span class="p">()</span>
+        <span class="p">}</span>
+        <span class="o">...</span>
+        <span class="nf">scang</span><span class="p">(</span><span class="nx">gp</span><span class="p">,</span> <span class="nx">gcw</span><span class="p">)</span>
+        <span class="o">...</span>
+<span class="p">}</span></code></pre></td></tr></table>
+</div>
+</div>
+<p>Our old friend <code>work.nRescanRoots</code> again, and it is zero, in this second mark termination phase with the world stopped. Because it&rsquo;s zero, <code>end</code> equals <code>baseRescan</code>, then <code>gp</code> will never be assigned from <code>work.rescan.list</code>, eliminating stack re-scanning, thus shortening the overall STW duration in a GC cycle.</p>
+
+<p>Let me summarize the chain a little,</p>
+
+<p>gcStart -&gt; gcMarkRootPrepare -&gt; gcBgMarkWorker -&gt; gcDrain -&gt; gcMarkDone -&gt; gcMarkTermination -&gt; gcMark -&gt; gcMarkRootPrepare -&gt; gcDrain -&gt; gcSweep</p>
+
+<p>The important ones are <code>gcMarkRootPrepare</code> and <code>gcDrain</code>, which collects roots and marks them respectively; they are linked by the global variable <code>work</code> with <code>rescan.list</code> in it.</p>
+
+<h1 id="conclusion">Conclusion</h1>
+
+<p>What a journey. At first I thought the removal should just be a deletion of something like <code>scanstacks()</code>. In future versions when it is certain that the proposed new write barrier contains no bugs, a lot of code can be removed and the logic should be easier to trace.</p>
+
+<h1 id="references">References</h1>
+
+<p><a href="https://making.pusher.com/golangs-real-time-gc-in-theory-and-practice/">https://making.pusher.com/golangs-real-time-gc-in-theory-and-practice/</a></p>
+
+<p><a href="https://talks.golang.org/2015/go-gc.pdf">https://talks.golang.org/2015/go-gc.pdf</a></p>
+
+<p><a href="https://stackoverflow.com/questions/2364274/tri-color-incremental-updating-gc-does-it-need-to-scan-each-stack-twice">https://stackoverflow.com/questions/2364274/tri-color-incremental-updating-gc-does-it-need-to-scan-each-stack-twice</a></p>
+
+<p><a href="https://blog.golang.org/go15gc">https://blog.golang.org/go15gc</a></p>
+
+<p><a href="https://github.com/golang/proposal/blob/master/design/17503-eliminate-rescan.md">https://github.com/golang/proposal/blob/master/design/17503-eliminate-rescan.md</a></p>
+
+    </div>
+
+    <div class="post-copyright">
+  <p class="copyright-item">
+    <span class="item-title">Author</span>
+    <span class="item-content">zhangjiangqige</span>
+  </p>
+  <p class="copyright-item">
+    <span class="item-title">LastMod</span>
+    <span class="item-content">
+        2017-09-05
+
+    </span>
+  </p>
+
+
+</div>
+<footer class="post-footer">
+      <div class="post-tags">
+          <a href="/archive-20191109/tags/golang/">golang</a>
+          <a href="/archive-20191109/tags/gc/">gc</a>
+          <a href="/archive-20191109/tags/source-code/">source-code</a>
+          </div>
+      <nav class="post-nav">
+        <a class="prev" href="/archive-20191109/post/2018-03-11-the-last-mile/">
+            <i class="iconfont icon-left"></i>
+            <span class="prev-text nav-default">the Last Mile</span>
+            <span class="prev-text nav-mobile">Prev</span>
+          </a>
+        <a class="next" href="/archive-20191109/post/2017-09-02-when-im-gone/">
+            <span class="next-text nav-default">When Im Gone</span>
+            <span class="next-text nav-mobile">Next</span>
+            <i class="iconfont icon-right"></i>
+          </a>
+      </nav>
+    </footer>
+  </article>
+        </div>
+
+
+
+
+
+
+      </div>
+    </main>
+
+    <footer id="footer" class="footer">
+      <div class="social-links">
+      <a href="mailto:zhangjiangqige@gmail.com" class="iconfont icon-email" title="email"></a>
+      <a href="https://github.com/zhangjiangqige" class="iconfont icon-github" title="github"></a>
+  <a href="https://zhangjiangqige.me/archive-20191109/index.xml" type="application/rss+xml" class="iconfont icon-rss" title="rss"></a>
+</div>
+
+<div class="copyright">
+  <span class="power-by">
+    Powered by <a class="hexo-link" href="https://gohugo.io">Hugo</a>
+  </span>
+  <span class="division">|</span>
+  <span class="theme-info">
+    Theme -
+    <a class="theme-link" href="https://github.com/olOwOlo/hugo-theme-even">Even</a>
+  </span>
+
+
+
+  <span class="copyright-year">
+    &copy;
+    2017 -
+    2019
+    <span class="heart">
+      <i class="iconfont icon-heart"></i>
+    </span>
+    <span class="author">zhangjiangqige</span>
+  </span>
+</div>
+    </footer>
+
+    <div class="back-to-top" id="back-to-top">
+      <i class="iconfont icon-up"></i>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/jquery@3.2.1/dist/jquery.min.js" integrity="sha256-hwg4gsxgFZhOsEEamdOYGBf13FyQuiTwlAQgxVSNgt4=" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/slideout@1.0.1/dist/slideout.min.js" integrity="sha256-t+zJ/g8/KXIJMjSVQdnibt4dlaDxc9zXr/9oNPeWqdg=" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3.1.20/dist/jquery.fancybox.min.js" integrity="sha256-XVLffZaxoWfGUEbdzuLi7pwaUJv1cecsQJQqGLe7axY=" crossorigin="anonymous"></script>
+<script type="text/javascript" src="/dist/even.26188efa.min.js"></script>
+
+
+<script type="application/javascript">
+var doNotTrack = false;
+if (!doNotTrack) {
+	window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+	ga('create', 'UA-100002607-1', 'auto');
+	ga('set', 'anonymizeIp', true);
+	ga('send', 'pageview');
+}
+</script>
+<script async src='https://www.google-analytics.com/analytics.js'></script>
+
+
+
+
+
+
+
+</body>
+</html>

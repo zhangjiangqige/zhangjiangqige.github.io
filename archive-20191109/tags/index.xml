@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Tags on zhangjiangqige</title>
+    <link>https://zhangjiangqige.me/archive-20191109/tags/</link>
+    <description>Recent content in Tags on zhangjiangqige</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en</language>
+    <lastBuildDate>Tue, 20 Nov 2018 00:12:25 -0500</lastBuildDate>
+
+	<atom:link href="https://zhangjiangqige.me/archive-20191109/tags/index.xml" rel="self" type="application/rss+xml" />
+
+
+    <item>
+      <title>gc</title>
+      <link>https://zhangjiangqige.me/archive-20191109/tags/gc/</link>
+      <pubDate>Tue, 20 Nov 2018 00:12:25 -0500</pubDate>
+
+      <guid>https://zhangjiangqige.me/archive-20191109/tags/gc/</guid>
+      <description></description>
+    </item>
+
+    <item>
+      <title>golang</title>
+      <link>https://zhangjiangqige.me/archive-20191109/tags/golang/</link>
+      <pubDate>Tue, 20 Nov 2018 00:12:25 -0500</pubDate>
+
+      <guid>https://zhangjiangqige.me/archive-20191109/tags/golang/</guid>
+      <description></description>
+    </item>
+
+    <item>
+      <title>source-code</title>
+      <link>https://zhangjiangqige.me/archive-20191109/tags/source-code/</link>
+      <pubDate>Tue, 20 Nov 2018 00:12:25 -0500</pubDate>
+
+      <guid>https://zhangjiangqige.me/archive-20191109/tags/source-code/</guid>
+      <description></description>
+    </item>
+
+    <item>
+      <title>programming</title>
+      <link>https://zhangjiangqige.me/archive-20191109/tags/programming/</link>
+      <pubDate>Mon, 19 Mar 2018 21:43:33 +0800</pubDate>
+
+      <guid>https://zhangjiangqige.me/archive-20191109/tags/programming/</guid>
+      <description></description>
+    </item>
+
+  </channel>
+</rss>
