@@ -178,7 +178,7 @@ How Go does GC Go uses (maybe) a variant of mark-sweep method to do GC, called t
 
 <p>Go uses (maybe) a variant of mark-sweep method to do GC, called tri-color. It consists of multiple steps, as shown in the <a href="https://talks.golang.org/2015/go-gc.pdf">slides</a> from Google.</p>
 
-<p><img src="/images/2017-09-05-stack-re-scanning-in-go-google-slide.png" alt="should be a pic" /></p>
+<p><img src="/archive-20191109/images/2017-09-05-stack-re-scanning-in-go-google-slide.png" alt="should be a pic" /></p>
 
 <p>In the source code (at least 1.7 ~ 1.9), &ldquo;Stack scan&rdquo; is actually in the &ldquo;Mark&rdquo; function and &ldquo;Sweep&rdquo; in &ldquo;Mark termination&rdquo;, so it can be considered as two phases. They can be combined into one, but separting into two and with the help of <em>write barriers</em>, the first phase can mark (maybe) most of the garbages and only need to halt the whole program at the beginning to collect the root objects (objects in stacks and global variables), shortenning the overall length of stop-the-world (STW).</p>
 
@@ -199,7 +199,7 @@ How Go does GC Go uses (maybe) a variant of mark-sweep method to do GC, called t
 </div>
 <p>When the garbage collector finishes scanning the stack, <code>A</code> becomes gray,</p>
 
-<p><img src="/images/2017-09-05-stack-re-scanning-in-go-tricolor-1.png" alt="should be a pic" /></p>
+<p><img src="/archive-20191109/images/2017-09-05-stack-re-scanning-in-go-tricolor-1.png" alt="should be a pic" /></p>
 
 <p>Because Go has <em>write barriers</em>, GC can run concurrently with the user program. Assume that before the garbage collector can do a thing, the program executes again,</p>
 <div class="highlight"><div class="chroma">
@@ -214,7 +214,7 @@ How Go does GC Go uses (maybe) a variant of mark-sweep method to do GC, called t
 </div>
 <p>Then the situation becomes</p>
 
-<p><img src="/images/2017-09-05-stack-re-scanning-in-go-tricolor-2.png" alt="should be a pic" /></p>
+<p><img src="/archive-20191109/images/2017-09-05-stack-re-scanning-in-go-tricolor-2.png" alt="should be a pic" /></p>
 
 <p>Then the collector goes again, and the stack is pointing to <code>B</code>, which is white, and this is the problem, since stacks are considered black after they&rsquo;re scanned at the beginning of GC, meaning all objects referenced by the stacks are not white. To color <code>B</code> gray, we have to scan the stacks again, resulting in the &ldquo;stack re-scanning&rdquo; in the second phase.</p>
 
@@ -824,7 +824,7 @@ How Go does GC Go uses (maybe) a variant of mark-sweep method to do GC, called t
   <script src="https://cdn.jsdelivr.net/npm/jquery@3.2.1/dist/jquery.min.js" integrity="sha256-hwg4gsxgFZhOsEEamdOYGBf13FyQuiTwlAQgxVSNgt4=" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/slideout@1.0.1/dist/slideout.min.js" integrity="sha256-t+zJ/g8/KXIJMjSVQdnibt4dlaDxc9zXr/9oNPeWqdg=" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3.1.20/dist/jquery.fancybox.min.js" integrity="sha256-XVLffZaxoWfGUEbdzuLi7pwaUJv1cecsQJQqGLe7axY=" crossorigin="anonymous"></script>
-<script type="text/javascript" src="/dist/even.26188efa.min.js"></script>
+<script type="text/javascript" src="/archive-20191109/dist/even.26188efa.min.js"></script>
 
 
 <script type="application/javascript">
